@@ -39,6 +39,7 @@ int main( int argc, char* argv[] ){
 	bool includeSediment(false);
 	bool rotateModel(false);
 	bool divAllElements(false);
+	bool isAnisotropicInversionUsed(false);
 
 	int numThread(1);
 
@@ -59,13 +60,16 @@ int main( int argc, char* argv[] ){
 		else if( strcmp(argv[i], "-div_all") == 0 ){
 			divAllElements = true;
 		}
+		else if (strcmp(argv[i], "-aniso") == 0) {
+			isAnisotropicInversionUsed = true;
+		}
 	}
 
 #ifdef _DEBUG_WRITE
 	std::cout << "includeSeaConductivityAtExtendedRegion : " << includeSeaConductivityAtExtendedRegion << std::endl;
 #endif
 
-	MeshData::getInstance()->makeMeshDataForFemtic( fileNameRoot, includeSediment, rotateModel, numThread, divAllElements );
+	MeshData::getInstance()->makeMeshDataForFemtic(fileNameRoot, includeSediment, rotateModel, numThread, divAllElements, isAnisotropicInversionUsed);
 
 	return 0;
 

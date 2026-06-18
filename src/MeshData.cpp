@@ -42,9 +42,9 @@ MeshData* MeshData::getInstance()
   	return &instance;
 }
 
-// Make mesh data for femtic
-void MeshData::makeMeshDataForFemtic( const std::string& rootName, const bool includeSediments, const bool rotateModel,
-									 const int numThread, const bool divAllElements ){
+// Make mesh data for FEMTIC
+void MeshData::makeMeshDataForFemtic(const std::string& rootName, const bool includeSediments, const bool rotateModel,
+	const int numThread, const bool divAllElements, const bool isAnisotropicInversionUsed) {
 
 	std::cout << "Total number of threas is " << numThread << std::endl;
 
@@ -58,7 +58,7 @@ void MeshData::makeMeshDataForFemtic( const std::string& rootName, const bool in
 #endif
 	m_doesUseBoundaryMaker = false;
 
-	readResisitivity();
+	readResisitivity(isAnisotropicInversionUsed);
 
 	if( includeSediments ){
 		std::cout << "Sedimentary layer is included." << std::endl;
@@ -67,7 +67,10 @@ void MeshData::makeMeshDataForFemtic( const std::string& rootName, const bool in
 	if( rotateModel ){
 		std::cout << "Model is rotated at an angle of 90 degrees around the z axis." << std::endl;
 	}
-	
+	if (isAnisotropicInversionUsed) {
+		std::cout << "Files for the anisotropic inversion are outputted" << std::endl;
+	}
+
 	if( m_doesUseBoundaryMaker ){
 		calcBoundaryFacesFromBoundaryMarker();
 	}
@@ -89,9 +92,8 @@ void MeshData::makeMeshDataForFemtic( const std::string& rootName, const bool in
 
 	makeResistivityBlock(divAllElements);
 
-	writeResisitivityData();
-
-	writeMeshDataToVTK( rootName );
+	writeResisitivityData(isAnisotropicInversionUsed);
+	writeMeshDataToVTK(rootName, isAnisotropicInversionUsed);
 }
 
 // Default constructer
@@ -460,7 +462,7 @@ void MeshData::readBoundaryAttribute(){
 }
 
 // Read releationship between resistivity values and region attributes
-void MeshData::readResisitivity(){
+void MeshData::readResisitivity(const bool isAnisotropicInversionUsed) {
 
 	std::ifstream ifs( "resistivity_attr.dat" );
 
@@ -493,20 +495,97 @@ void MeshData::readResisitivity(){
 
 		ResistivityData resistivityDataBuf;
 		resistivityDataBuf.attr = attr;
+		ifs >> resistivityDataBuf.ndiv;
 
-		int ibuf;
-		ifs >> resistivityDataBuf.resistivity >> resistivityDataBuf.ndiv >> ibuf;
-		
-		if( iRes == 0 ){
-			if( resistivityDataBuf.ndiv >= 0 ){
-				std::cerr << "Number of division must be negative for the first resistivity data ( the air layer ) !!" << std::endl;
+		if (isAnisotropicInversionUsed) {
+			ifs >> resistivityDataBuf.param.type;
+			double resistivity(0.0);
+			int ifixRhoXX(0);
+			int ifixRhoYY(0);
+			int ifixRhoZZ(0);
+			int ifixStrike(0);
+			int ifixDip(0);
+			int ifixSlant(0);
+			switch (resistivityDataBuf.param.type)
+			{
+			case ISOTROPY:
+				ifs >> resistivity;
+				if (resistivity < 0) {
+					std::cerr << "Resistivity value of attribute " << attr << " is less than zero !" << std::endl;
+					exit(1);
+				}
+				ifs >> ifixRhoXX;
+				resistivityDataBuf.param = getIsotropicResistivityParameters(resistivity, ifixRhoXX == 1 ? true : false);
+				break;
+			case TRANSVERSE_ISOTROPY:
+				ifs >> resistivityDataBuf.param.rhoXX;
+				if (resistivityDataBuf.param.rhoXX < 0) {
+					std::cerr << "rho_xx value of attribute " << attr << " is less than zero !" << std::endl;
+					exit(1);
+				}
+				ifs >> resistivityDataBuf.param.rhoYY;
+				if (resistivityDataBuf.param.rhoYY < 0) {
+					std::cerr << "rho_xx value of attribute " << attr << " is less than zero !" << std::endl;
+					exit(1);
+				}
+				resistivityDataBuf.param.rhoZZ = resistivityDataBuf.param.rhoXX;
+				ifs >> resistivityDataBuf.param.strike;
+				ifs >> resistivityDataBuf.param.dip;
+				resistivityDataBuf.param.slant = 0.0;
+				ifs >> ifixRhoXX >> ifixRhoYY >> ifixStrike >> ifixDip;
+				resistivityDataBuf.param.fixRhoXX = (ifixRhoXX == 1 ? true : false);
+				resistivityDataBuf.param.fixRhoYY = (ifixRhoYY == 1 ? true : false);
+				resistivityDataBuf.param.fixRhoZZ = resistivityDataBuf.param.fixRhoXX;
+				resistivityDataBuf.param.fixStrike = (ifixStrike == 1 ? true : false);
+				resistivityDataBuf.param.fixDip = (ifixDip == 1 ? true : false);
+				resistivityDataBuf.param.fixSlant = true;
+				break;
+			case GENERAL_ANISOTROPY:
+				ifs >> resistivityDataBuf.param.rhoXX;
+				if (resistivityDataBuf.param.rhoXX < 0) {
+					std::cerr << "rho_xx value of attribute " << attr << " is less than zero !" << std::endl;
+					exit(1);
+				}
+				ifs >> resistivityDataBuf.param.rhoYY;
+				if (resistivityDataBuf.param.rhoYY < 0) {
+					std::cerr << "rho_xx value of attribute " << attr << " is less than zero !" << std::endl;
+					exit(1);
+				}
+				ifs >> resistivityDataBuf.param.rhoZZ;
+				if (resistivityDataBuf.param.rhoZZ < 0) {
+					std::cerr << "rho_xx value of attribute " << attr << " is less than zero !" << std::endl;
+					exit(1);
+				}
+				ifs >> resistivityDataBuf.param.strike;
+				ifs >> resistivityDataBuf.param.dip;
+				ifs >> resistivityDataBuf.param.slant;
+				ifs >> ifixRhoXX >> ifixRhoYY >> ifixRhoZZ >> ifixStrike >> ifixDip >> ifixSlant;
+				resistivityDataBuf.param.fixRhoXX = (ifixRhoXX == 1 ? true : false);
+				resistivityDataBuf.param.fixRhoYY = (ifixRhoYY == 1 ? true : false);
+				resistivityDataBuf.param.fixRhoZZ = (ifixRhoZZ == 1 ? true : false);
+				resistivityDataBuf.param.fixStrike = (ifixStrike == 1 ? true : false);
+				resistivityDataBuf.param.fixDip = (ifixDip == 1 ? true : false);
+				resistivityDataBuf.param.fixSlant = (ifixSlant == 1 ? true : false);
+				break;
+			default:
+				std::cerr << "Unsupported anisotropy type: " << resistivityDataBuf.param.type << std::endl;
 				exit(1);
+				break;
 			}
-			m_regionAttrAirLayer = resistivityDataBuf.attr;
-			resistivityAir = resistivityDataBuf.resistivity;
 		}
-
-		resistivityDataBuf.fix = ( ibuf > 0 ? true : false );
+		else{
+			int ibuf;
+			ifs >> resistivityDataBuf.param.rhoXX >> resistivityDataBuf.ndiv >> ibuf;
+			if (iRes == 0) {
+				if (resistivityDataBuf.ndiv >= 0) {
+					std::cerr << "Number of division must be negative for the first resistivity data ( the air layer ) !!" << std::endl;
+					exit(1);
+				}
+				m_regionAttrAirLayer = resistivityDataBuf.attr;
+				resistivityAir = resistivityDataBuf.param.rhoXX;
+			}
+			resistivityDataBuf.param.fixRhoXX = (ibuf > 0 ? true : false);
+		}
 
 		if( resistivityDataBuf.ndiv < 0 ){
 			std::cout << "Resistivity data " << iRes << " is the air or the sea because its division number is negative." << std::endl;
@@ -695,21 +774,6 @@ void MeshData::includeSedimentaryLayers(){
 
 	const std::string fileName = "sediment_layer.dat";
 
-	//// Center coordinate of the area including predifined sediments
-	//XYZ centerCoordSedimentArea = { 0.0, 0.0, 0.0 };
-
-	//// Radius of the area including predifined sediments
-	//double radiusSedimentArea(0.0);
-
-	//// Depth of sedimentary layer
-	//double depthSedimentLayer(0.0);
-
-	//// Attribute of sediment
-	//int attrSedimentLayer(-1);
-
-	//// Resistivity of sediment
-	//double resistivitySedimentLayer(0.0);
-
 	SedimentParameter sedimentParam;
 
 	// Number of the region attribute pair for specifing the area including predifined sediments
@@ -869,10 +933,8 @@ void MeshData::changeAttributeOfSediment( const std::vector<int>& elemSerials, c
 
 	ResistivityData resistivityDataBuf;
 	resistivityDataBuf.attr = attrSediment;
-	resistivityDataBuf.fix = 1;
 	resistivityDataBuf.ndiv = 0;
-	resistivityDataBuf.resistivity = resistivitySediment;
-
+	resistivityDataBuf.param = getIsotropicResistivityParameters(resistivitySediment, true);
 	m_resistivityData.push_back(resistivityDataBuf);
 	m_regionAttr2ResistivityID.insert( std::make_pair( attrSediment, static_cast<int>(m_resistivityData.size()) - 1 ) );
 
@@ -898,35 +960,6 @@ MeshData::XY MeshData::calcGravityCenterOfTetGenFace( const int iFace ) const{
 	return coord;
 }
 
-// Calculate Z coordinate of the point below the specified face of Tetgen
-//double MeshData::calcZCoordOnTetGenFace( const XYZ& point, const int iFace ) const{
-//
-//	assert( iFace < 0 || iFace >= m_numFaces );
-//
-//	const XYZ nodeCoords[3] = {
-//		m_nodeCoords[ m_faceTetGen[iFace].nodeID[0] - 1 ],
-//		m_nodeCoords[ m_faceTetGen[iFace].nodeID[1] - 1 ],
-//		m_nodeCoords[ m_faceTetGen[iFace].nodeID[2] - 1 ]
-//	};
-//
-//	const double areaTotal = calcAreaOnXYPlane( nodeCoords[0], nodeCoords[1], nodeCoords[2] );
-//
-//	const double areaCoords[3] = {
-//		calcAreaOnXYPlane( point, nodeCoords[1], nodeCoords[2] ) / areaTotal,
-//		calcAreaOnXYPlane( nodeCoords[0], point, nodeCoords[2] ) / areaTotal,
-//		calcAreaOnXYPlane( nodeCoords[0], nodeCoords[1], point ) / areaTotal
-//	};
-//
-//	const double EPS = 1.0e-12;
-//	assert( areaCoords[0] < -EPS || areaCoords[0] < -EPS || areaCoords[0] < -EPS );
-//
-//	double val(0.0);
-//	for( int i = 0; i < 3; ++i ){
-//		val += nodeCoords[i].Z * areaCoords[i]; 
-//	}
-//	return val;
-//
-//}
 bool MeshData::calcZCoordOnTetGenFace( const XYZ& point, const int iFace, double& zCoord ) const{
 
 	assert( iFace >= 0 || iFace < m_numFaces );
@@ -1600,7 +1633,7 @@ void MeshData::writeMeshData() const{
 }
 
 // Write mesh data to vtk file
-void MeshData::writeMeshDataToVTK( const std::string& rootName ) const{
+void MeshData::writeMeshDataToVTK(const std::string& rootName, const bool isAnisotropicInversionUsed) const {
 
 	std::string fileName = rootName;
 	fileName += ".femtic.vtk";
@@ -1656,23 +1689,67 @@ void MeshData::writeMeshDataToVTK( const std::string& rootName ) const{
 		vtkFile << std::setw(10) << static_cast<int>( m_blk2elem[iBlk].size() ) << std::endl;
 	}
 
-	vtkFile << "SCALARS Resistivity[Ohm-m] double" <<  std::endl;
-	vtkFile << "LOOKUP_TABLE default" <<  std::endl;
-	vtkFile.precision(9);
-	for( int iElem = 0 ; iElem < m_numElements; ++iElem ){
-		vtkFile << std::setw(20) << m_blk2resistivity[ m_elem2blk[iElem] ].first << std::endl;
-	}
-
 	vtkFile << "SCALARS ElemSerial int" <<  std::endl;
 	vtkFile << "LOOKUP_TABLE default" <<  std::endl;
 	for( int iElem = 0 ; iElem < m_numElements; ++iElem ){
 		vtkFile << iElem << std::endl;
 	}
 
-	vtkFile << "SCALARS Fixed int" <<  std::endl;
-	vtkFile << "LOOKUP_TABLE default" <<  std::endl;
-	for( int iElem = 0 ; iElem < m_numElements; ++iElem ){
-		vtkFile << std::setw(20) << static_cast<int>( m_blk2resistivity[ m_elem2blk[iElem] ].second ) << std::endl;
+	if (isAnisotropicInversionUsed) {
+		vtkFile << "SCALARS AnisotropyTypes int" << std::endl;
+		vtkFile << "LOOKUP_TABLE default" << std::endl;
+		for (int iElem = 0; iElem < m_numElements; ++iElem) {
+			vtkFile << std::setw(5) << m_blk2resistivity[m_elem2blk[iElem]].type << std::endl;
+		}
+		vtkFile << "SCALARS RhoXX[Ohm-m] float" << std::endl;
+		vtkFile << "LOOKUP_TABLE default" << std::endl;
+		for (int iElem = 0; iElem < m_numElements; ++iElem) {
+			vtkFile << std::setw(20) << m_blk2resistivity[m_elem2blk[iElem]].rhoXX << std::endl;
+		}
+		vtkFile << "SCALARS RhoYY[Ohm-m] float" << std::endl;
+		vtkFile << "LOOKUP_TABLE default" << std::endl;
+		for (int iElem = 0; iElem < m_numElements; ++iElem) {
+			vtkFile << std::setw(20) << m_blk2resistivity[m_elem2blk[iElem]].rhoYY << std::endl;
+		}
+		vtkFile << "SCALARS RhoZZ[Ohm-m] float" << std::endl;
+		vtkFile << "LOOKUP_TABLE default" << std::endl;
+		for (int iElem = 0; iElem < m_numElements; ++iElem) {
+			vtkFile << std::setw(20) << m_blk2resistivity[m_elem2blk[iElem]].rhoZZ << std::endl;
+		}
+		vtkFile << "SCALARS Strike[deg.] float" << std::endl;
+		vtkFile << "LOOKUP_TABLE default" << std::endl;
+		for (int iElem = 0; iElem < m_numElements; ++iElem) {
+			vtkFile << std::setw(20) << m_blk2resistivity[m_elem2blk[iElem]].strike << std::endl;
+		}
+		vtkFile << "SCALARS Dip[deg.] float" << std::endl;
+		vtkFile << "LOOKUP_TABLE default" << std::endl;
+		for (int iElem = 0; iElem < m_numElements; ++iElem) {
+			vtkFile << std::setw(20) << m_blk2resistivity[m_elem2blk[iElem]].dip << std::endl;
+		}
+		vtkFile << "SCALARS Slant[deg.] float" << std::endl;
+		vtkFile << "LOOKUP_TABLE default" << std::endl;
+		for (int iElem = 0; iElem < m_numElements; ++iElem) {
+			vtkFile << std::setw(20) << m_blk2resistivity[m_elem2blk[iElem]].slant << std::endl;
+		}
+		vtkFile << "SCALARS Anisotropy float" << std::endl;
+		vtkFile << "LOOKUP_TABLE default" << std::endl;
+		for (int iElem = 0; iElem < m_numElements; ++iElem) {
+			const double anisotropy = fabs(log10(m_blk2resistivity[m_elem2blk[iElem]].rhoXX) - log10(m_blk2resistivity[m_elem2blk[iElem]].rhoYY));
+			vtkFile << std::setw(20) << anisotropy << std::endl;
+		}
+	}
+	else {
+		vtkFile << "SCALARS Resistivity[Ohm-m] double" << std::endl;
+		vtkFile << "LOOKUP_TABLE default" << std::endl;
+		vtkFile.precision(9);
+		for (int iElem = 0; iElem < m_numElements; ++iElem) {
+			vtkFile << std::setw(20) << m_blk2resistivity[m_elem2blk[iElem]].rhoXX << std::endl;
+		}
+		vtkFile << "SCALARS Fixed int" << std::endl;
+		vtkFile << "LOOKUP_TABLE default" << std::endl;
+		for (int iElem = 0; iElem < m_numElements; ++iElem) {
+			vtkFile << std::setw(20) << static_cast<int>(m_blk2resistivity[m_elem2blk[iElem]].fixRhoXX) << std::endl;
+		}
 	}
 
 #ifdef _DEBUG_WRITE
@@ -1734,66 +1811,8 @@ void MeshData::writeMeshDataToVTK( const std::string& rootName ) const{
 
 }
 
-
-//// Write resistivity data
-//void MeshData::writeResisitivityData() const{
-//
-//	std::ofstream ofs( "resistivity_model_iter0.dat" );
-//
-//	if( !ofs.is_open() ){
-//		std::cerr << "Cannot open file resistivity_model_iter0.dat !!" << std::endl;
-//		exit(1);
-//	}
-//
-//	std::cout << "Output mesh data to resistivity_model_iter0.dat ." << std::endl;
-//
-//	//const int numResisitivityBlk = static_cast<int>( m_regionAttr2Resistivity.size() );
-//	ofs << std::setw(10) << m_numElements
-//		<< std::setw(10) << m_numResistivity
-//		<< std::endl;
-//
-//	for( int iElem = 0; iElem < m_numElements; ++iElem ){
-//
-//		ofs << std::setw(10) << iElem
-//			<< std::setw(10) << (m_regionAttr2Resistivity.find( m_elements[iElem].attribute )->second).first
-//			<< std::endl;
-//		
-//	}
-//
-//	ofs.precision(9);
-//	for( int iBlk = 0; iBlk < numResisitivityBlk; ++iBlk ){
-//
-//		double val(0.0);
-//		bool found(false);
-//		for( std::map< int, std::pair<int,double> >::const_iterator itr = m_regionAttr2Resistivity.begin();
-//			 itr != m_regionAttr2Resistivity.end();
-//			 ++itr ){
-//
-//			 if( iBlk == (itr->second).first ){
-//				 val = (itr->second).second;
-//				 found = true;
-//				 break;
-//			 }
-//
-//		}
-//		if( !found ){
-//			std::cerr << "Resistivity block ID " << iBlk << " cannot be found !!" << std::endl;
-//			exit(1);
-//		}
-//		
-//		ofs << std::setw(10) << iBlk
-//			<< std::setw(20) << std::scientific << val
-//			<< std::setw(10) << 0
-//			<< std::endl;
-//		
-//	}
-//
-//	ofs.close();
-//
-//}
-
 // Write resistivity data
-void MeshData::writeResisitivityData() const{
+void MeshData::writeResisitivityData(const bool isAnisotropicInversionUsed) const {
 
 	std::ofstream ofs( "resistivity_block_iter0.dat" );
 
@@ -1819,17 +1838,51 @@ void MeshData::writeResisitivityData() const{
 
 	ofs.precision(6);
 	int icount(0);
-	for( std::vector< std::pair<double,bool> >::const_iterator itr = m_blk2resistivity.begin(); itr != m_blk2resistivity.end(); ++itr, ++icount ){
-		ofs << std::setw(10) << icount
-			<< std::setw(15) << std::scientific << itr->first
-#ifdef _OLD
-#else
-			<< std::setw(15) << 1.0e-20 << std::setw(15) << 1.0e+20 << std::setw(15) << 1.0
-#endif
-			<< std::setw(10) << ( itr->second ? 1 : 0 )
-			<< std::endl;
-	}
 
+	if (isAnisotropicInversionUsed) {
+		for (std::vector<ResistivityParameter>::const_iterator itr = m_blk2resistivity.begin(); itr != m_blk2resistivity.end(); ++itr, ++icount) {
+			ofs << std::setw(10) << icount << std::setw(5) << itr->type;
+			switch (itr->type)
+			{
+			case ISOTROPY:
+				ofs << std::setw(15) << std::scientific << itr->rhoXX
+					<< std::setw(15) << 1.0e-20 << std::setw(15) << 1.0e+20
+					<< std::setw(5)  << (itr->fixRhoXX ? 1 : 0)
+					<< std::endl;
+				break;
+			case TRANSVERSE_ISOTROPY:
+				ofs << std::setw(15) << std::scientific << itr->rhoXX << std::setw(15) << std::scientific << itr->rhoYY
+					<< std::setw(15) << std::scientific << itr->strike << std::setw(15) << std::scientific << itr->dip
+					<< std::setw(15) << 1.0e-20 << std::setw(15) << 1.0e+20
+					<< std::setw(5) << (itr->fixRhoXX ? 1 : 0)  << std::setw(5) << (itr->fixRhoYY ? 1 : 0)
+					<< std::setw(5) << (itr->fixStrike ? 1 : 0) << std::setw(5) << (itr->fixDip ? 1 : 0)
+					<< std::endl;
+				break;
+			case GENERAL_ANISOTROPY:
+				ofs << std::setw(15) << std::scientific << itr->rhoXX << std::setw(15) << std::scientific << itr->rhoYY << std::setw(15) << std::scientific << itr->rhoZZ
+					<< std::setw(15) << std::scientific << itr->strike << std::setw(15) << std::scientific << itr->dip << std::setw(15) << std::scientific << itr->slant
+					<< std::setw(15) << 1.0e-20 << std::setw(15) << 1.0e+20
+					<< std::setw(5) << (itr->fixRhoXX ? 1 : 0) << std::setw(5) << (itr->fixRhoYY ? 1 : 0) << std::setw(5) << (itr->fixRhoZZ ? 1 : 0)
+					<< std::setw(5) << (itr->fixStrike ? 1 : 0) << std::setw(5) << (itr->fixDip ? 1 : 0) << std::setw(5) << (itr->fixSlant ? 1 : 0)
+					<< std::endl;
+				break;
+			default:
+				std::cerr << "Unsupported type of anisotropy: " << itr->type << std::endl;
+				exit(1);
+				break;
+			}
+		}
+	}
+	else {
+		for (std::vector<ResistivityParameter>::const_iterator itr = m_blk2resistivity.begin(); itr != m_blk2resistivity.end(); ++itr, ++icount) {
+			ofs << std::setw(10) << icount
+				<< std::setw(15) << std::scientific << itr->rhoXX
+				<< std::setw(15) << 1.0e-20 << std::setw(15) << 1.0e+20 << std::setw(15) << 1.0
+				<< std::setw(10) << (itr->fixRhoXX ? 1 : 0)
+				<< std::endl;
+		}
+	}
+	
 	ofs.close();
 
 }
@@ -1895,12 +1948,7 @@ void MeshData::makeResistivityBlock( const bool divAllElements ){
 				m_elem2blk[*itr] = icount;
 				m_blk2elem[icount].push_back(*itr);
 			}
-			m_blk2resistivity.push_back( std::make_pair(m_resistivityData[iRes].resistivity,m_resistivityData[iRes].fix) );
-			//std::cout << std::setw(10) << static_cast<int>( m_blk2resistivity.size() )
-			//		  << std::setw(10) << static_cast<int>( m_blk2elem[icount].size() )
-			//		  << std::setw(20) << std::scientific << m_blk2resistivity.back().first
-			//		  << std::setw(5) << std::scientific << m_blk2resistivity.back().second
-			//		  << std::endl; 
+			m_blk2resistivity.push_back(m_resistivityData[iRes].param);
 			++icount;
 		}
 
@@ -2642,3 +2690,25 @@ void MeshData::writeFacesAboveAdditionalFixedRegionToVTK( const std::string& roo
 }
 
 #endif
+
+// Get isotropic resistivity parameters
+MeshData::ResistivityParameter MeshData::getIsotropicResistivityParameters(const double resistivity, const bool isFixed) const {
+
+	ResistivityParameter param;
+	param.type = ISOTROPY;
+	param.rhoXX = resistivity;
+	param.rhoYY = resistivity;
+	param.rhoZZ = resistivity;
+	param.strike = 0.0;
+	param.dip = 0.0;
+	param.slant = 0.0;
+	param.fixRhoXX = isFixed;
+	param.fixRhoYY = isFixed;
+	param.fixRhoZZ = isFixed;
+	param.fixStrike = isFixed;
+	param.fixDip = isFixed;
+	param.fixSlant = isFixed;
+
+	return param;
+
+}

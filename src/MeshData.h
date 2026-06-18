@@ -37,9 +37,9 @@ public:
 	// Return the the instance of the class
     static MeshData* getInstance();
 
-	// Make mesh data for femtic
-	void makeMeshDataForFemtic( const std::string& rootName, const bool includeSediments,
-		const bool rotation, const int numThread, const bool divAllElements );
+	// Make mesh data for FEMTIC
+	void makeMeshDataForFemtic(const std::string& rootName, const bool includeSediments,
+		const bool rotation, const int numThread, const bool divAllElements, const bool isAnisotropicInversionUsed);
 
 private:
 
@@ -83,11 +83,32 @@ private:
 		std::vector<int> attributes;
 	};
 
-	struct ResistivityData{
-		double resistivity;
-		int ndiv;
+	enum AnisotropyTypes {
+		ISOTROPY = 0,
+		TRANSVERSE_ISOTROPY,
+		GENERAL_ANISOTROPY,
+	};
+
+	struct ResistivityParameter {
+		int type;
+		double rhoXX;
+		double rhoYY;
+		double rhoZZ;
+		double strike;
+		double dip;
+		double slant;
+		bool fixRhoXX;
+		bool fixRhoYY;
+		bool fixRhoZZ;
+		bool fixStrike;
+		bool fixDip;
+		bool fixSlant;
+	};
+
+	struct ResistivityData {
 		int attr;
-		bool fix;
+		int ndiv;
+		ResistivityParameter param;
 	};
 
 	enum BoundaryType{
@@ -197,8 +218,8 @@ private:
 	// Array convert element ID to resistivity block ID
 	int* m_elem2blk;
 
-	// Array convert resistivity block serial to resistivity value
-	std::vector< std::pair<double,bool> > m_blk2resistivity;
+	// Array convert resistivity block serial to resistivity parameters
+	std::vector<ResistivityParameter> m_blk2resistivity;
 
 	// Array convert resistivity block serial to element serials
 	std::vector< std::vector<int> > m_blk2elem;
@@ -272,7 +293,7 @@ private:
 	void readBoundaryAttribute();
 
 	// Read releationship between resistivity values and region attributes
-	void readResisitivity();
+	void readResisitivity(const bool isAnisotropicInversionUsed);
 
 	// Include sedimentary layers
 	void includeSedimentaryLayers();
@@ -354,10 +375,10 @@ private:
 	void writeMeshData() const;
 
 	// Write mesh data to vtk file
-	void writeMeshDataToVTK( const std::string& rootName ) const;
+	void writeMeshDataToVTK(const std::string& rootName, const bool isAnisotropicInversionUsed) const;
 
 	// Write resistivity data
-	void writeResisitivityData() const;
+	void writeResisitivityData(const bool isAnisotropicInversionUsed) const;
 
 	// Make resistivity block by partitioning resistivity block by RCB
 	void makeResistivityBlock( const bool divAllElements );
@@ -426,6 +447,9 @@ private:
 	// Write faces above the additional area in which resistivity values are fixed
 	void writeFacesAboveAdditionalFixedRegionToVTK( const std::string& rootName ) const;
 #endif
+
+	// Get isotropic resistivity parameters
+	ResistivityParameter getIsotropicResistivityParameters(const double resistivity, const bool isFixed) const;
 
 };
 
