@@ -495,9 +495,9 @@ void MeshData::readResisitivity(const bool isAnisotropicInversionUsed) {
 
 		ResistivityData resistivityDataBuf;
 		resistivityDataBuf.attr = attr;
-		ifs >> resistivityDataBuf.ndiv;
 
 		if (isAnisotropicInversionUsed) {
+			ifs >> resistivityDataBuf.ndiv;
 			ifs >> resistivityDataBuf.param.type;
 			double resistivity(0.0);
 			int ifixRhoXX(0);
